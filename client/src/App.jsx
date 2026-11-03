@@ -68,7 +68,9 @@ const [orderAmount, setOrderAmount] = useState("10.00");
 const [orderLoading, setOrderLoading] = useState(false);
 const [orderError, setOrderError] = useState("");
 const [createdOrder, setCreatedOrder] = useState(null);
-
+const [captureLoading, setCaptureLoading] = useState(false);
+const [captureError, setCaptureError] = useState("");
+const [captureResult, setCaptureResult] = useState(null);
   useEffect(() => {
     let active = true;
 
@@ -158,7 +160,37 @@ const [createdOrder, setCreatedOrder] = useState(null);
   }
 };
 
+  const captureSandboxOrder = async () => {
+    if (!createdOrder?.orderId || captureLoading) return;
 
+    setCaptureLoading(true);
+    setCaptureError("");
+    setCaptureResult(null);
+
+    try {
+      const response = await fetch(
+        `http://localhost:3001/api/paypal/orders/${encodeURIComponent(createdOrder.orderId)}/capture`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Sandbox capture failed.");
+      }
+
+      setCaptureResult(data);
+    } catch (error) {
+      setCaptureError(error.message);
+    } finally {
+      setCaptureLoading(false);
+    }
+  };
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -318,22 +350,48 @@ const [createdOrder, setCreatedOrder] = useState(null);
     <p className="order-error">{orderError}</p>
   )}
 
-  {createdOrder && (
-    <div className="order-result">
-      <strong>Sandbox order created</strong>
-      <p>Order ID: {createdOrder.orderId}</p>
-      <p>Amount: ${createdOrder.amount}</p>
-      <p>Status: {createdOrder.status}</p>
-      <a
-        href={createdOrder.approvalUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Open PayPal approval page →
-      </a>
-      <p>Creating an order does not mean payment has been completed.</p>
-    </div>
-  )}
+ {createdOrder && (
+  <div className="order-result">
+    <strong>Sandbox order created</strong>
+    <p>Order ID: {createdOrder.orderId}</p>
+    <p>Amount: ${createdOrder.amount}</p>
+    <p>Status: {createdOrder.status}</p>
+
+    <a
+      href={createdOrder.approvalUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      Open PayPal approval page →
+    </a>
+
+    <p>Approve the payment in PayPal Sandbox before capturing it.</p>
+
+    <button
+      className="primary-button"
+      onClick={captureSandboxOrder}
+      disabled={captureLoading || captureResult?.completed === true}
+    >
+      {captureLoading ? "Capturing..." : "Capture approved payment"}
+    </button>
+
+    {captureError && (
+      <p className="order-error">{captureError}</p>
+    )}
+
+    {captureResult && (
+      <div>
+        <strong>
+          {captureResult.completed
+            ? "Payment completed"
+            : `Capture status: ${captureResult.captureStatus}`}
+        </strong>
+        <p>Capture ID: {captureResult.captureId}</p>
+        <p>Amount: {captureResult.amount} {captureResult.currency}</p>
+      </div>
+    )}
+  </div>
+)}
 </section>
           <section className="stats-grid">
             <div className="stat-card">

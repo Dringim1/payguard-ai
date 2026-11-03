@@ -1,5 +1,5 @@
 const express = require("express");
-const { randomUUID } = require("crypto");
+const { randomUUID, createHash } = require("crypto");
 const { getPayPalAccessToken } = require("./paypal");
 
 const router = express.Router();
@@ -111,5 +111,78 @@ router.post("/paypal/orders", async (req, res) => {
     });
   }
 });
+// Capture an approved PayPal Sandbox order
+router.post("/paypal/orders/:orderId/capture", async (req, res) => {
+  const { orderId } = req.params;
 
+  if (
+    typeof orderId !== "string" ||
+    !/^[A-Z0-9]{10,50}$/.test(orderId)
+  ) {
+    return res.status(400).json({
+      error: "A valid PayPal order ID is required."
+    });
+  }
+  const captureRequestId = createHash("sha256")
+    .update(`payguard-capture:${orderId}`)
+    .digest("hex")
+    .slice(0, 32);
+  try {
+    const accessToken = await getPayPalAccessToken();
+
+    const response = await fetch(
+      `${PAYPAL_BASE}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "PayPal-Request-Id": captureRequestId
+        }
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("PayPal capture failed:", {
+        status: response.status,
+        name: data.name,
+        message: data.message,
+        debugId: data.debug_id
+      });
+
+      return res.status(502).json({
+        error: "PayPal could not capture this Sandbox order."
+      });
+    }
+
+    const capture =
+      data.purchase_units?.[0]?.payments?.captures?.[0];
+
+    if (!capture) {
+      return res.status(502).json({
+        error: "PayPal returned no capture details."
+      });
+    }
+
+    res.json({
+      orderId: data.id,
+      orderStatus: data.status,
+      captureId: capture.id,
+      captureStatus: capture.status,
+      amount: capture.amount?.value,
+      currency: capture.amount?.currency_code,
+      completed: capture.status === "COMPLETED",
+      environment: "sandbox"
+    });
+
+  } catch (error) {
+    console.error("Order capture error:", error.message);
+
+    res.status(500).json({
+      error: "Unable to capture the Sandbox payment."
+    });
+  }
+});
 module.exports = router;
